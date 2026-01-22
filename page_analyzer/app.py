@@ -73,9 +73,15 @@ def urls():
         with conn.cursor() as cur:
             cur.execute(
                 '''
-                SELECT id, name, created_at
-                FROM urls
-                ORDER BY created_at DESC;
+                SELECT
+                    u.id,
+                    u.name,
+                    u.created_at,
+                    MAX(c.created_at) AS last_check
+                FROM urls u
+                LEFT JOIN url_checks c ON u.id = c.url_id
+                GROUP BY u.id
+                ORDER BY u.created_at DESC;
                 '''
             )
             rows = cur.fetchall()
@@ -85,6 +91,7 @@ def urls():
             'id': row[0],
             'name': row[1],
             'created_at': row[2],
+            'last_check': row[3],
         }
         for row in rows
     ]
@@ -96,21 +103,69 @@ def urls():
 def show_url(id):
     with get_connection() as conn:
         with conn.cursor() as cur:
+            # Получаем URL
             cur.execute(
                 'SELECT id, name, created_at FROM urls WHERE id = %s;',
                 (id,)
             )
-            row = cur.fetchone()
+            url_row = cur.fetchone()
 
-    if not row:
-        flash('Страница не найдена', 'danger')
-        return redirect(url_for('index'))
+            if not url_row:
+                flash('Страница не найдена', 'danger')
+                return redirect(url_for('index'))
+
+            # Получаем проверки
+            cur.execute(
+                '''
+                SELECT id, created_at
+                FROM url_checks
+                WHERE url_id = %s
+                ORDER BY created_at DESC;
+                ''',
+                (id,)
+            )
+            checks_rows = cur.fetchall()
+
+    checks = [
+        {
+            'id': row[0],
+            'created_at': row[1],
+        }
+        for row in checks_rows
+    ]
 
     return render_template(
         'url.html',
         url={
-            'id': row[0],
-            'name': row[1],
-            'created_at': row[2],
-        }
+            'id': url_row[0],
+            'name': url_row[1],
+            'created_at': url_row[2],
+        },
+        checks=checks,
     )
+
+
+@app.route('/urls/<int:id>/checks', methods=['POST'], endpoint='create_check')
+def create_check(id):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT id FROM urls WHERE id = %s;',
+                (id,)
+            )
+            url = cur.fetchone()
+
+            if not url:
+                flash('Страница не найдена', 'danger')
+                return redirect(url_for('index'))
+
+            cur.execute(
+                '''
+                INSERT INTO url_checks (url_id, created_at)
+                VALUES (%s, %s);
+                ''',
+                (id, datetime.now())
+            )
+
+    flash('Проверка успешно запущена', 'success')
+    return redirect(url_for('show_url', id=id))
