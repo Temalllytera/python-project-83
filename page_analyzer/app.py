@@ -153,6 +153,7 @@ def show_url(id):
 
 
 @app.route('/urls/<int:id>/checks', methods=['POST'], endpoint='create_check')
+@app.route('/urls/<int:id>/checks', methods=['POST'], endpoint='create_check')
 def create_check(id):
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -179,9 +180,14 @@ def create_check(id):
 
     status_code = response.status_code
     h1 = soup.find('h1').get_text(strip=True) if soup.find('h1') else ''
-    title = soup.find('title').get_text(strip=True) if soup.find('title') else ''
+    title = (
+        soup.find('title').get_text(strip=True)
+        if soup.find('title') else ''
+    )
     meta_desc = soup.find('meta', attrs={'name': 'description'})
-    description = meta_desc.get('content', '').strip() if meta_desc else ''
+    description = (
+        meta_desc.get('content', '').strip() if meta_desc else ''
+    )
 
     with get_connection() as conn:
         with conn.cursor() as cur:
