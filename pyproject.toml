@@ -9,11 +9,12 @@ dependencies = [
     "python-dotenv",
     "gunicorn",
     "psycopg[binary]",
-    "validators"
+    "validators",
+    "requests",
+    "beautifulsoup4",
 ]
 
 [tool.uv]
 dev-dependencies = [
     "flake8"
 ]
-

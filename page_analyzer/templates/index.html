@@ -10,7 +10,14 @@
     >
   </head>
 
-  <body class="bg-light">
+  <body>
+    <nav class="navbar navbar-dark bg-dark">
+      <div class="container">
+        <a class="navbar-brand" href="{{ url_for('index') }}">Анализатор страниц</a>
+        <a class="nav-link text-white" href="{{ url_for('urls') }}">Сайты</a>
+      </div>
+    </nav>
+
     <div class="container mt-5">
       <div class="row justify-content-center">
         <div class="col-md-10 col-lg-8">

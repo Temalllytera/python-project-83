@@ -2,6 +2,9 @@ import os
 from datetime import datetime
 from urllib.parse import urlparse
 
+import requests
+from requests import RequestException
+from bs4 import BeautifulSoup
 import validators
 from flask import (
     Flask,
@@ -77,10 +80,15 @@ def urls():
                     u.id,
                     u.name,
                     u.created_at,
-                    MAX(c.created_at) AS last_check
+                    c.created_at AS last_check,
+                    c.status_code
                 FROM urls u
-                LEFT JOIN url_checks c ON u.id = c.url_id
-                GROUP BY u.id
+                LEFT JOIN url_checks c ON c.id = (
+                    SELECT id FROM url_checks
+                    WHERE url_id = u.id
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                )
                 ORDER BY u.created_at DESC;
                 '''
             )
@@ -92,6 +100,7 @@ def urls():
             'name': row[1],
             'created_at': row[2],
             'last_check': row[3],
+            'status_code': row[4],
         }
         for row in rows
     ]
@@ -103,7 +112,6 @@ def urls():
 def show_url(id):
     with get_connection() as conn:
         with conn.cursor() as cur:
-            # Получаем URL
             cur.execute(
                 'SELECT id, name, created_at FROM urls WHERE id = %s;',
                 (id,)
@@ -114,10 +122,9 @@ def show_url(id):
                 flash('Страница не найдена', 'danger')
                 return redirect(url_for('index'))
 
-            # Получаем проверки
             cur.execute(
                 '''
-                SELECT id, created_at
+                SELECT id, status_code, h1, title, description, created_at
                 FROM url_checks
                 WHERE url_id = %s
                 ORDER BY created_at DESC;
@@ -129,7 +136,11 @@ def show_url(id):
     checks = [
         {
             'id': row[0],
-            'created_at': row[1],
+            'status_code': row[1],
+            'h1': row[2],
+            'title': row[3],
+            'description': row[4],
+            'created_at': row[5],
         }
         for row in checks_rows
     ]
@@ -150,22 +161,42 @@ def create_check(id):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                'SELECT id FROM urls WHERE id = %s;',
+                'SELECT name FROM urls WHERE id = %s;',
                 (id,)
             )
-            url = cur.fetchone()
+            url_row = cur.fetchone()
 
-            if not url:
+            if not url_row:
                 flash('Страница не найдена', 'danger')
                 return redirect(url_for('index'))
 
+    url_name = url_row[0]
+
+    try:
+        response = requests.get(url_name, timeout=10)
+        response.raise_for_status()
+    except RequestException:
+        flash('Произошла ошибка при проверке', 'danger')
+        return redirect(url_for('show_url', id=id))
+
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    status_code = response.status_code
+    h1 = soup.find('h1').get_text(strip=True) if soup.find('h1') else ''
+    title = soup.find('title').get_text(strip=True) if soup.find('title') else ''
+    meta_desc = soup.find('meta', attrs={'name': 'description'})
+    description = meta_desc.get('content', '').strip() if meta_desc else ''
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
             cur.execute(
                 '''
-                INSERT INTO url_checks (url_id, created_at)
-                VALUES (%s, %s);
+                INSERT INTO url_checks
+                    (url_id, status_code, h1, title, description, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s);
                 ''',
-                (id, datetime.now())
+                (id, status_code, h1, title, description, datetime.now())
             )
 
-    flash('Проверка успешно запущена', 'success')
+    flash('Страница успешно проверена', 'success')
     return redirect(url_for('show_url', id=id))
