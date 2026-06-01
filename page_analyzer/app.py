@@ -33,13 +33,9 @@ def index():
 def create_url():
     raw_url = request.form.get('url', '').strip()
 
-    if not raw_url or len(raw_url) > 255:
+    if not raw_url or len(raw_url) > 255 or not validators.url(raw_url):
         flash('Некорректный URL', 'danger')
-        return redirect(url_for('index'))
-
-    if not validators.url(raw_url):
-        flash('Некорректный URL', 'danger')
-        return redirect(url_for('index'))
+        return render_template('index.html'), 422
 
     parsed_url = urlparse(raw_url)
     normalized_url = f'{parsed_url.scheme}://{parsed_url.netloc}'
