@@ -1,11 +1,9 @@
 import os
 from datetime import datetime
-from urllib.parse import urlparse
 
 import requests
-from requests import RequestException
-from bs4 import BeautifulSoup
 import validators
+from requests import RequestException
 from flask import (
     Flask,
     render_template,
@@ -17,6 +15,8 @@ from flask import (
 from dotenv import load_dotenv
 
 from page_analyzer.db.database import get_connection
+from page_analyzer.parser import parse_page
+from page_analyzer.url_normalizer import normalize_url
 
 load_dotenv()
 
@@ -37,14 +37,13 @@ def create_url():
         flash('Некорректный URL', 'danger')
         return render_template('index.html'), 422
 
-    parsed_url = urlparse(raw_url)
-    normalized_url = f'{parsed_url.scheme}://{parsed_url.netloc}'
+    normalized = normalize_url(raw_url)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 'SELECT id FROM urls WHERE name = %s;',
-                (normalized_url,)
+                (normalized,)
             )
             existing = cur.fetchone()
 
@@ -58,7 +57,7 @@ def create_url():
                 VALUES (%s, %s)
                 RETURNING id;
                 ''',
-                (normalized_url, datetime.now())
+                (normalized, datetime.now())
             )
             url_id = cur.fetchone()[0]
 
@@ -153,7 +152,6 @@ def show_url(id):
 
 
 @app.route('/urls/<int:id>/checks', methods=['POST'], endpoint='create_check')
-@app.route('/urls/<int:id>/checks', methods=['POST'], endpoint='create_check')
 def create_check(id):
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -176,18 +174,7 @@ def create_check(id):
         flash('Произошла ошибка при проверке', 'danger')
         return redirect(url_for('show_url', id=id))
 
-    soup = BeautifulSoup(response.text, 'html.parser')
-
-    status_code = response.status_code
-    h1 = soup.find('h1').get_text(strip=True) if soup.find('h1') else ''
-    title = (
-        soup.find('title').get_text(strip=True)
-        if soup.find('title') else ''
-    )
-    meta_desc = soup.find('meta', attrs={'name': 'description'})
-    description = (
-        meta_desc.get('content', '').strip() if meta_desc else ''
-    )
+    parsed = parse_page(response.text)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -197,7 +184,14 @@ def create_check(id):
                     (url_id, status_code, h1, title, description, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s);
                 ''',
-                (id, status_code, h1, title, description, datetime.now())
+                (
+                    id,
+                    response.status_code,
+                    parsed['h1'],
+                    parsed['title'],
+                    parsed['description'],
+                    datetime.now(),
+                )
             )
 
     flash('Страница успешно проверена', 'success')
